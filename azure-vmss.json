@@ -70,8 +70,8 @@
 		"appGwSubnetName": "[concat(variables('namingInfix'),'appGwSubnet')]",
 		"appGwSubnetPrefix": "10.0.1.0/24",
 		"appGwSubnetID": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('appGwSubnetName'))]",
-		"appGwFrontendPort": 80,
-		"appGwBackendPort": 80,
+		"appGwFrontendPort": 8080,
+		"appGwBackendPort": 8080,
 		"appGwBePoolName": "[concat(variables('namingInfix'), 'appGwBepool')]"
 	},
 	"resources": [{
