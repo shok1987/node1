@@ -1,0 +1,27 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "location": {
+            "value": "ukwest"
+        },
+        "vmssName": {
+            "value": "rethinkdb"
+        },
+        "adminUsername": {
+            "value": "da_admin"
+        },
+       
+        "adminPassword": {
+            "value": "EUC3$53rc0//"
+        },
+        "image": {
+            "value": {
+                "sku": "2016-Datacenter-Server-Core-smalldisk",
+                "publisher": "MicrosoftWindowsServer",
+                "version": "latest",
+                "offer": "WindowsServer"
+            }
+    }
+}
+}

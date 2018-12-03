@@ -1,0 +1,320 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "location": {
+            "type": "string"
+        },
+        "vmssName": {
+            "type": "string"
+        },
+        "adminUsername": {
+            "type": "string"
+        },
+        "image": {
+            "type": "object"
+        },
+        "adminPassword": {
+            "type": "securestring"
+        }
+
+    },
+    "variables": {
+        "namingInfix": "[toLower(substring(concat(parameters('vmssName'), uniqueString(resourceGroup().id)), 0, 9))]",
+        "networkApiVersion": "2018-01-01",
+        "computeApiVersion": "2018-06-01",
+        "loadBalancerName": "[concat(parameters('vmssName'), 'lb')]",
+        "loadBalancerId": "[resourceId('Microsoft.Network/loadBalancers', variables('loadBalancerName'))]",
+        "networkSecurityGroupName": "[concat(parameters('vmssName'), 'nsg')]",
+        "instanceCount": "2",
+        "singlePlacementGroup": "true",
+        "priority": "Regular",
+        "vmSku": "Standard_DS1_v2",
+        "pipName": "rethinkdb",
+        "pipLabel": "rethinkdb",
+        "ipAllocationMethod": "Static",
+        "skuType": "Standard",
+        "subnetId": "/subscriptions/c01aefd3-639e-473c-b5b5-3719d9902a56/resourceGroups/topboxdev/providers/Microsoft.Network/virtualNetworks/topboxdev/subnets/rethink",
+        "enableAcceleratedNetworking": "false",
+        "upgradeMode": "Automatic",
+        "vnetName": "topboxdev"
+    },
+    "resources": [
+        {
+            "apiVersion": "[variables('networkApiVersion')]",
+            "name": "[variables('vnetName')]",
+            "type": "Microsoft.Network/virtualNetworks",
+            "location": "[parameters('location')]",
+            "properties": {
+                "subnets": [
+                    {
+                        "name": "rethink",
+                        "id": "/subscriptions/c01aefd3-639e-473c-b5b5-3719d9902a56/resourceGroups/topboxdev/providers/Microsoft.Network/virtualNetworks/topboxdev/subnets/rethink",
+                        "properties": {
+                            "addressPrefix": "10.0.1.0/24",
+                            "networkSecurityGroup": {
+                                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+                            }
+                        }
+                    }
+                ],
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "10.0.0.0/16"
+                    ]
+                }
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "name": "[variables('pipName')]",
+            "location": "[parameters('location')]",
+            "apiVersion": "[variables('networkApiVersion')]",
+            "sku": {
+                "name": "[variables('skuType')]"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "[variables('ipAllocationMethod')]",
+                "dnsSettings": {
+                    "domainNameLabel": "[variables('pipLabel')]"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Network/loadBalancers",
+            "name": "[variables('loadBalancerName')]",
+            "location": "[parameters('location')]",
+            "apiVersion": "[variables('networkApiVersion')]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/publicIPAddresses/', variables('pipName'))]"
+            ],
+            "sku": {
+                "name": "[variables('skuType')]"
+            },
+            "properties": {
+                "frontendIPConfigurations": [
+                    {
+                        "name": "LoadBalancerFrontEnd",
+                        "properties": {
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIpAddresses', variables('pipName'))]"
+                            }
+                        }
+                    }
+                ],
+                "backendAddressPools": [
+                    {
+                        "name": "bepool"
+                    }
+                ],
+                "inboundNatPools": [
+                    {
+                        "name": "natpool",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(variables('loadBalancerId'), '/frontendIPConfigurations/loadBalancerFrontEnd')]"
+                            },
+                            "protocol": "Tcp",
+                            "frontendPortRangeStart": "50000",
+                            "frontendPortRangeEnd": "50119",
+                            "backendPort": "3389"
+                        }
+                    }
+                ],
+                "probes": [
+                    {
+                        "name": "tcpProbe",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "port": 80,
+                            "intervalInSeconds": 5,
+                            "numberOfProbes": 2
+                        }
+                    }
+                ],
+                "loadBalancingRules": [
+                    {
+                        "name": "LBRule",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(variables('loadBalancerId'), '/frontendIPConfigurations/loadBalancerFrontEnd')]"
+                            },
+                            "backendAddressPool": {
+                                "id": "[concat(variables('loadBalancerId'),'/backendAddressPools/bepool')]"
+                            },
+                            "protocol": "Tcp",
+                            "frontendPort": 80,
+                            "backendPort": 80,
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 5,
+                            "probe": {
+                                "id": "[concat(variables('loadBalancerId'),'/probes/tcpProbe')]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "RethinkRule",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[concat(variables('loadBalancerId'), '/frontendIPConfigurations/loadBalancerFrontEnd')]"
+                            },
+                            "backendAddressPool": {
+                                "id": "[concat(variables('loadBalancerId'),'/backendAddressPools/bepool')]"
+                            },
+                            "protocol": "Tcp",
+                            "frontendPort": 8080,
+                            "backendPort": 8080,
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 5,
+                            "probe": {
+                                "id": "[concat(variables('loadBalancerId'),'/probes/tcpProbe')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "[variables('networkApiVersion')]",
+            "name": "[variables('networkSecurityGroupName')]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "allowSSH",
+                        "properties": {
+                            "description": "Allow SSH traffic",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "3389",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 1000,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "allowHTTP",
+                        "properties": {
+                            "description": "Allow web traffic",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "80",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 1001,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "allowRethink",
+                        "properties": {
+                            "description": "Allow Rethink traffic",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "8080",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 1002,
+                            "direction": "Inbound"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "name": "[parameters('vmssName')]",
+            "type": "Microsoft.Compute/virtualMachineScaleSets",
+            "apiVersion": "[variables('computeApiVersion')]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/virtualNetworks/', variables('vnetName'))]",
+                "[concat('Microsoft.Network/loadBalancers/', variables('loadBalancerName'))]"
+            ],
+            "sku": {
+                "name": "[variables('vmSku')]",
+                "tier": "Standard",
+                "capacity": "[int(variables('instanceCount'))]"
+            },
+            "properties": {
+                "overprovision": "true",
+                "upgradePolicy": {
+                    "mode": "[variables('upgradeMode')]"
+                },
+                "singlePlacementGroup": "[variables('singlePlacementGroup')]",
+                "virtualMachineProfile": {
+                    "storageProfile": {
+                        "imageReference": "[parameters('image')]",
+                        "osDisk": {
+                            "createOption": "FromImage",
+                            "caching": "ReadWrite"
+                        }
+                    },
+                    "priority": "[variables('priority')]",
+                    "osProfile": {
+                        "computerNamePrefix": "[variables('namingInfix')]",
+                        "adminUsername": "[parameters('adminUsername')]",
+                        "adminPassword": "[parameters('adminPassword')]"
+                    },
+                    "networkProfile": {
+                        "networkInterfaceConfigurations": [
+                            {
+                                "name": "[concat(parameters('vmssName'), 'Nic')]",
+                                "properties": {
+                                    "primary": "true",
+                                    "enableAcceleratedNetworking": "[variables('enableAcceleratedNetworking')]",
+                                    "ipConfigurations": [
+                                        {
+                                            "name": "[concat(parameters('vmssName'), 'IpConfig')]",
+                                            "properties": {
+                                                "subnet": {
+                                                    "id": "[variables('subnetId')]"
+                                                },
+                                                "loadBalancerBackendAddressPools": [
+                                                    {
+                                                        "id": "[reference(variables('loadBalancerName'), variables('networkApiVersion')).backendAddressPools[0].id]"
+                                                    }
+                                                ],
+                                                "loadBalancerInboundNatPools": [
+                                                    {
+                                                        "id": "[reference(variables('loadBalancerName'), variables('networkApiVersion')).inboundNatPools[0].id]"
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    "extensionProfile": {
+                        "extensions": [
+                          {
+                            "name": "rethinkinstall",
+                            "properties": {
+                              "publisher": "Microsoft.Compute",
+                              "type": "CustomScriptExtension",
+                              "typeHandlerVersion": "1.9",
+                              "autoUpgradeMinorVersion": true,
+                              "settings": {
+                                "fileUris": [
+                                  "https://raw.githubusercontent.com/shok1987/node1/master/rethink.ps1"
+                                ],
+                                "commandToExecute": "./rethink1.ps1"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                }
+            }
+        }
+    ]
+}
